@@ -1,79 +1,98 @@
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
 from ortools.sat.python import cp_model
 
+Shift = str  # "M", "A", "N"
+Assignment = Tuple[int, int, Shift]  # (nurse, day, shift)
+PrefMap = Dict[Tuple[int, int, Shift], int]  # penalty (+) or bonus (-)
 
-def solve_planning(num_nurses, num_days, shifts, demand):
+
+@dataclass
+class SolveConfig:
+    max_time_seconds: float = 10.0
+    balance_weight: int = 10  # weight on workload imbalance vs preferences
+
+
+def solve_planning(
+    num_nurses: int,
+    num_days: int,
+    shifts: List[Shift],
+    demand: Dict[Tuple[int, Shift], int],
+    preferences: Optional[PrefMap] = None,
+    config: SolveConfig = SolveConfig(),
+) -> Optional[List[Assignment]]:
     """
-    Résout le problème de planning infirmier via CP-SAT (CSP).
+    Solve nurse rostering with:
+    - Hard constraints: at most one shift/day, demand coverage, rest after night (N -> no M next day)
+    - Soft constraints: preferences via penalties/bonuses in objective
+    - Objective: minimize workload imbalance + preference penalties
     """
 
     model = cp_model.CpModel()
 
-    # Variables x[n][d][s] = 1 si infirmier n travaille le jour d sur le shift s
-    x = {}
+    # x[n, d, s] = 1 if nurse n works shift s on day d
+    x: Dict[Tuple[int, int, Shift], cp_model.IntVar] = {}
     for n in range(num_nurses):
         for d in range(num_days):
             for s in shifts:
                 x[(n, d, s)] = model.NewBoolVar(f"x_{n}_{d}_{s}")
 
-    # 1️⃣ Contrainte : au plus 1 shift par jour et par infirmier
+    # 1) At most one shift per day per nurse
     for n in range(num_nurses):
         for d in range(num_days):
-            model.Add(
-                sum(x[(n, d, s)] for s in shifts) <= 1
-            )
+            model.Add(sum(x[(n, d, s)] for s in shifts) <= 1)
 
-    # 2️⃣ Contrainte : couverture de la demande
+    # 2) Demand coverage
     for d in range(num_days):
         for s in shifts:
-            model.Add(
-                sum(x[(n, d, s)] for n in range(num_nurses)) >= demand[d][s]
-            )
+            required = demand.get((d, s), 0)
+            model.Add(sum(x[(n, d, s)] for n in range(num_nurses)) >= required)
 
-    # 3️⃣ Contrainte : repos après une nuit
-    for n in range(num_nurses):
-        for d in range(num_days - 1):
-            model.Add(
-                x[(n, d, "N")] + x[(n, d + 1, "M")] <= 1
-            )
+    # 3) Rest after night: if N on day d then no M on day d+1
+    if "N" in shifts and "M" in shifts:
+        for n in range(num_nurses):
+            for d in range(num_days - 1):
+                model.Add(x[(n, d, "N")] + x[(n, d + 1, "M")] <= 1)
 
-    # 4️⃣ Contrainte : maximum de nuits par infirmier
-    MAX_NIGHTS = 3
-    for n in range(num_nurses):
-        model.Add(
-            sum(x[(n, d, "N")] for d in range(num_days)) <= MAX_NIGHTS
-        )
-
-    # 5️⃣ Équilibrage de la charge de travail
-    workload = []
+    # ---- Workload variables
+    workloads: List[cp_model.IntVar] = []
     for n in range(num_nurses):
         w = model.NewIntVar(0, num_days, f"workload_{n}")
-        model.Add(
-            w == sum(x[(n, d, s)] for d in range(num_days) for s in shifts)
-        )
-        workload.append(w)
+        model.Add(w == sum(x[(n, d, s)] for d in range(num_days) for s in shifts))
+        workloads.append(w)
 
-    max_workload = model.NewIntVar(0, num_days, "max_workload")
-    min_workload = model.NewIntVar(0, num_days, "min_workload")
-    model.AddMaxEquality(max_workload, workload)
-    model.AddMinEquality(min_workload, workload)
+    max_w = model.NewIntVar(0, num_days, "max_workload")
+    min_w = model.NewIntVar(0, num_days, "min_workload")
+    model.AddMaxEquality(max_w, workloads)
+    model.AddMinEquality(min_w, workloads)
 
-    # 🎯 Fonction objectif : équilibrer la charge
-    model.Minimize(max_workload - min_workload)
+    # ---- Preferences (soft constraints)
+    # Convention:
+    #  - penalty > 0 : "I don't want this assignment" (adds cost if assigned)
+    #  - penalty < 0 : "I like this assignment" (reduces objective if assigned)
+    pref_cost_terms = []
+    if preferences:
+        for (n, d, s), penalty in preferences.items():
+            if (n, d, s) in x:
+                pref_cost_terms.append(penalty * x[(n, d, s)])
 
-    # Résolution
+    # Objective: workload imbalance weighted + preference costs
+    model.Minimize(config.balance_weight * (max_w - min_w) + sum(pref_cost_terms))
+
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 10
-    status = solver.Solve(model)
+    solver.parameters.max_time_in_seconds = config.max_time_seconds
 
+    status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return None
 
-    # Extraction du planning
-    schedule = []
+    planning: List[Assignment] = []
     for n in range(num_nurses):
         for d in range(num_days):
             for s in shifts:
                 if solver.Value(x[(n, d, s)]) == 1:
-                    schedule.append((n, d, s))
+                    planning.append((n, d, s))
 
-    return schedule
+    return planning
