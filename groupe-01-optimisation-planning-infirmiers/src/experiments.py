@@ -3,14 +3,14 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Dict, List
 
-from model import RosteringConfig, solve_nurse_rostering
+from model import ConfigurationPlanning, resoudre_planning_infirmiers
 
 
-def demand_constant(num_days: int) -> List[Dict[str, int]]:
-    return [{"M": 2, "A": 2, "N": 1} for _ in range(num_days)]
+def demande_constante(nombre_jours: int) -> List[Dict[str, int]]:
+    return [{"M": 2, "A": 2, "N": 1} for _ in range(nombre_jours)]
 
 
-def prefs_demo() -> Dict:
+def preferences_demo() -> Dict:
     return {
         (0, 0): {"type": "prefer", "shift": "OFF"},
         (1, 1): {"type": "avoid", "shift": "N"},
@@ -19,67 +19,67 @@ def prefs_demo() -> Dict:
     }
 
 
-def run_case(name: str, num_nurses: int, num_days: int, demand, prefs, cfg: RosteringConfig):
-    res = solve_nurse_rostering(
-        num_nurses=num_nurses,
-        num_days=num_days,
-        demand=demand,
-        preferences=prefs,
-        config=cfg,
-        time_limit_s=10.0,
-        log_search=False,
+def lancer_cas(
+    nom: str,
+    nb_infirmiers: int,
+    nb_jours: int,
+    demande,
+    preferences,
+    config: ConfigurationPlanning,
+):
+    resultat = resoudre_planning_infirmiers(
+        nb_infirmiers,
+        nb_jours,
+        demande,
+        preferences,
+        config,
     )
-    if not res.feasible or res.schedule is None or res.violations:
-        return {
-            "case": name,
-            "status": "INFEASIBLE",
-            "objective": None,
-            "work_spread": None,
-            "night_spread": None,
-            "pref_sat": None,
-        }
+
+    if not resultat.faisable or resultat.violations:
+        return {"cas": nom, "statut": "INFAISABLE"}
+
     return {
-        "case": name,
-        "status": "OK",
-        "objective": res.objective_value,
-        "work_spread": res.metrics.get("work_spread"),
-        "night_spread": res.metrics.get("night_spread"),
-        "pref_sat": res.metrics.get("pref_satisfaction"),
+        "cas": nom,
+        "statut": "OK",
+        "objectif": resultat.valeur_objectif,
+        "equilibre_travail": resultat.metriques.get("work_spread"),
+        "equilibre_nuits": resultat.metriques.get("night_spread"),
+        "satisfaction_preferences": resultat.metriques.get("pref_satisfaction"),
     }
 
 
 def main():
-    num_nurses = 6
-    num_days = 7
-    demand = demand_constant(num_days)
-    prefs = prefs_demo()
+    nb_infirmiers = 6
+    nb_jours = 7
 
-    base_cfg = RosteringConfig()
+    demande = demande_constante(nb_jours)
+    preferences = preferences_demo()
 
-    cases = []
+    config_base = ConfigurationPlanning()
 
-    # Case 1: no preferences
-    cases.append(run_case("no_prefs", num_nurses, num_days, demand, {}, base_cfg))
+    resultats = []
 
-    # Case 2: with preferences
-    cases.append(run_case("with_prefs", num_nurses, num_days, demand, prefs, base_cfg))
+    resultats.append(lancer_cas("sans_preferences", nb_infirmiers, nb_jours, demande, {}, config_base))
+    resultats.append(lancer_cas("avec_preferences", nb_infirmiers, nb_jours, demande, preferences, config_base))
 
-    # Case 3: stronger balance, weaker prefs
-    cfg3 = deepcopy(base_cfg)
-    cfg3 = RosteringConfig(
-        min_days_off=base_cfg.min_days_off,
-        max_consecutive_work_days=base_cfg.max_consecutive_work_days,
-        max_nights_per_nurse=base_cfg.max_nights_per_nurse,
-        rest_after_night=base_cfg.rest_after_night,
-        w_preference=5,
-        w_balance_work=10,
-        w_balance_nights=5,
+    config_equilibre_fort = deepcopy(config_base)
+    config_equilibre_fort = ConfigurationPlanning(
+        min_jours_repos=config_base.min_jours_repos,
+        max_jours_travail_consecutifs=config_base.max_jours_travail_consecutifs,
+        max_nuits_par_infirmier=config_base.max_nuits_par_infirmier,
+        repos_apres_nuit=config_base.repos_apres_nuit,
+        poids_preferences=5,
+        poids_equilibrage_travail=10,
+        poids_equilibrage_nuits=5,
     )
-    cases.append(run_case("balance_strong", num_nurses, num_days, demand, prefs, cfg3))
 
-    print("\n=== EXPERIMENTS RESULTS ===")
-    for c in cases:
-        print(c)
+    resultats.append(
+        lancer_cas("equilibrage_fort", nb_infirmiers, nb_jours, demande, preferences, config_equilibre_fort)
+    )
+
+    print("\n=== RÉSULTATS DES EXPÉRIMENTS ===")
+    for r in resultats:
+        print(r)
 
 
 if __name__ == "__main__":

@@ -8,76 +8,63 @@ from matplotlib.colors import ListedColormap
 import matplotlib.patches as mpatches
 
 
-def plot_schedule(
-    schedule: List[List[str]],
-    title: str = "Planning infirmiers",
-    nurse_labels: Optional[List[str]] = None,
-    day_labels: Optional[List[str]] = None,
-    save_path: Optional[str] = None,
-    show: bool = True,
+def afficher_planning(
+    planning: List[List[str]],
+    titre: str = "Planning infirmiers",
+    noms_infirmiers: Optional[List[str]] = None,
+    noms_jours: Optional[List[str]] = None,
+    chemin_sauvegarde: Optional[str] = None,
+    afficher: bool = True,
 ) -> None:
     """
-    schedule: [nurse][day] in {"M","A","N","OFF"}
+    Affiche le planning sous forme de tableau coloré lisible.
     """
-    n_nurses = len(schedule)
-    n_days = len(schedule[0]) if n_nurses else 0
 
-    if nurse_labels is None:
-        nurse_labels = [f"Infirmier {i}" for i in range(n_nurses)]
-    if day_labels is None:
-        day_labels = [f"Jour {d}" for d in range(n_days)]
+    nb_infirmiers = len(planning)
+    nb_jours = len(planning[0]) if nb_infirmiers else 0
 
-    # Map to integers for colormap
-    mapping = {"OFF": 0, "M": 1, "A": 2, "N": 3}
-    data = np.zeros((n_nurses, n_days), dtype=int)
-    for i in range(n_nurses):
-        for j in range(n_days):
-            data[i, j] = mapping.get(schedule[i][j], 0)
+    if noms_infirmiers is None:
+        noms_infirmiers = [f"Infirmier {i}" for i in range(nb_infirmiers)]
+    if noms_jours is None:
+        noms_jours = [f"Jour {j}" for j in range(nb_jours)]
 
-    # OFF, M, A, N
-    cmap = ListedColormap(["#FFFFFF", "#A7D3F0", "#BDECC4", "#F7B7B7"])
+    # Encodage numérique
+    conversion = {"OFF": 0, "M": 1, "A": 2, "N": 3}
+    matrice = np.zeros((nb_infirmiers, nb_jours), dtype=int)
+    for i in range(nb_infirmiers):
+        for j in range(nb_jours):
+            matrice[i, j] = conversion[planning[i][j]]
 
-    fig_w = max(10, n_days * 1.4)
-    fig_h = max(5, n_nurses * 1.0)
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    couleurs = ListedColormap(["#FFFFFF", "#A7D3F0", "#BDECC4", "#F7B7B7"])
 
-    ax.imshow(data, cmap=cmap, aspect="auto", interpolation="nearest")
+    fig, ax = plt.subplots(figsize=(max(10, nb_jours * 1.4), max(5, nb_infirmiers)))
+    ax.imshow(matrice, cmap=couleurs, aspect="auto")
 
-    # Grid lines (cell borders)
-    ax.set_xticks(np.arange(-0.5, n_days, 1), minor=True)
-    ax.set_yticks(np.arange(-0.5, n_nurses, 1), minor=True)
-    ax.grid(which="minor", linestyle="-", linewidth=1)
-    ax.tick_params(which="minor", bottom=False, left=False)
+    ax.set_xticks(range(nb_jours))
+    ax.set_yticks(range(nb_infirmiers))
+    ax.set_xticklabels(noms_jours)
+    ax.set_yticklabels(noms_infirmiers)
 
-    # Labels
-    ax.set_xticks(np.arange(n_days))
-    ax.set_yticks(np.arange(n_nurses))
-    ax.set_xticklabels(day_labels)
-    ax.set_yticklabels(nurse_labels)
+    for i in range(nb_infirmiers):
+        for j in range(nb_jours):
+            ax.text(j, i, planning[i][j], ha="center", va="center", fontsize=16, fontweight="bold")
 
-    # Put big text in each cell
-    for i in range(n_nurses):
-        for j in range(n_days):
-            txt = schedule[i][j]
-            ax.text(j, i, txt, ha="center", va="center", fontsize=16, fontweight="bold")
+    ax.set_title(titre, fontsize=18, fontweight="bold")
 
-    ax.set_title(title, fontsize=18, fontweight="bold", pad=15)
-
-    # Legend
-    legend_patches = [
-        mpatches.Patch(facecolor="#A7D3F0", edgecolor="black", label="Matin (M)"),
-        mpatches.Patch(facecolor="#BDECC4", edgecolor="black", label="Après-midi (A)"),
-        mpatches.Patch(facecolor="#F7B7B7", edgecolor="black", label="Nuit (N)"),
-        mpatches.Patch(facecolor="#FFFFFF", edgecolor="black", label="Repos (OFF)"),
+    legende = [
+        mpatches.Patch(color="#A7D3F0", label="Matin (M)"),
+        mpatches.Patch(color="#BDECC4", label="Après-midi (A)"),
+        mpatches.Patch(color="#F7B7B7", label="Nuit (N)"),
+        mpatches.Patch(color="#FFFFFF", label="Repos (OFF)"),
     ]
-    ax.legend(handles=legend_patches, loc="upper right")
+    ax.legend(handles=legende, loc="upper right")
 
     plt.tight_layout()
 
-    if save_path:
-        plt.savefig(save_path, dpi=200)
+    if chemin_sauvegarde:
+        plt.savefig(chemin_sauvegarde, dpi=200)
 
-    if show:
+    if afficher:
         plt.show()
     else:
         plt.close(fig)
